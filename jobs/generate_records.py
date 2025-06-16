@@ -3,6 +3,7 @@ from nautobot.dcim.models import Device, DeviceType, Manufacturer, Interface, Pl
 from nautobot.ipam.models import IPAddress
 from nautobot.extras.models import Status
 from nautobot.dns.models import Zone, ARecord
+from nautobot.apps.jobs import register_jobs
 
 from django.utils.text import slugify
 
@@ -79,4 +80,4 @@ class GenerateDevicesAndRecords(Job):
 
         self.log_success(f"✅ Done! {data['total_devices']} devices created in zone '{zone.name}'.")
 
-job = GenerateDevicesAndRecords
+register_jobs(GenerateDevicesAndRecords)
