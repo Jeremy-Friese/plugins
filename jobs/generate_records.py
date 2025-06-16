@@ -1,81 +1,82 @@
-from nautobot.apps.jobs import (
-    Job,
-    StringVar,
-    BooleanVar,
-    IPNetworkVar,
-    IPAddressWithMaskVar,
-    ObjectVar,
-    register_jobs,
-)
-from nautobot.dcim.models import Location, Device, Interface, DeviceType, DeviceRole
-from nautobot.ipam.models import Prefix, IPAddress
+from nautobot.core.jobs import Job, StringVar, IntegerVar
+from nautobot.dcim.models import Device, DeviceType, Manufacturer, Interface, Platform, Location
+from nautobot.ipam.models import IPAddress
 from nautobot.extras.models import Status
-from django.core.exceptions import ValidationError
+from nautobot.dns.models import Zone, ARecord
 
-class GenerateRecords(Job):
-    """Generate Location, Device, Interface, Prefix & IP Address."""
+from django.utils.text import slugify
 
+
+class GenerateDevicesAndRecords(Job):
     class Meta:
-        name = "Generate Records"
-        description = "Generate various Nautobot records"
+        name = "Generate Devices with IPs and DNS"
+        description = "Create 1000 devices with interfaces, IPs, and A records"
         has_sensitive_variables = False
 
-    location_name = StringVar(required=True, description="Name of the Location")
-    device_name   = StringVar(required=True, description="Name of the Device")
-    device_type   = ObjectVar(model=DeviceType,    required=True, description="Device Type")
-    device_role   = ObjectVar(model=DeviceRole,    required=True, description="Device Role")
-    interface_name = StringVar(required=True, description="Name of the Interface")
-    ip_prefix     = IPNetworkVar(required=True, description="IP prefix (e.g. 192.168.1.0/24)")
-    ip_address    = IPAddressWithMaskVar(required=True, description="IP addr (e.g. 192.168.1.1/24)")
+    location_name = StringVar(
+        description="Name of the Location to place all devices under", default="AutoLab"
+    )
+
+    base_device_name = StringVar(
+        description="Base prefix for device names (e.g., 'autodev')", default="autodev"
+    )
+
+    total_devices = IntegerVar(
+        description="Number of devices to create", default=1000
+    )
+
+    zone_name = StringVar(
+        description="DNS Zone (e.g., example.com)", default="example.com"
+    )
 
     def run(self, data, commit):
-        try:
-            # Location
-            loc = Location(name=data["location_name"], status=Status.objects.get(name="Active"))
-            loc.validated_save()
-            self.log_success(f"Location created: {loc}")
+        # 1. Prepare common objects
+        status_active = Status.objects.get(name="Active")
+        manufacturer, _ = Manufacturer.objects.get_or_create(name="AutoGen Inc.")
+        device_type, _ = DeviceType.objects.get_or_create(
+            model="AGen-Switch", manufacturer=manufacturer
+        )
+        platform, _ = Platform.objects.get_or_create(name="AutoOS")
+        location, _ = Location.objects.get_or_create(name=data["location_name"])
+        zone, _ = Zone.objects.get_or_create(name=data["zone_name"])
 
-            # Device
-            dev = Device(
-                name=data["device_name"],
-                device_type=data["device_type"],
-                device_role=data["device_role"],
-                location=loc,
-                status=Status.objects.get(name="Active"),
+        for i in range(data["total_devices"]):
+            device_name = f"{data['base_device_name']}-{i}"
+            ip_str = f"10.0.{i // 256}.{i % 256}/24"
+
+            # 2. Create Device
+            device = Device.objects.create(
+                name=device_name,
+                device_type=device_type,
+                platform=platform,
+                location=location,
+                status=status_active,
             )
-            dev.validated_save()
-            self.log_success(f"Device created: {dev}")
 
-            # Interface
-            iface = Interface(
-                name=data["interface_name"],
-                device=dev,
-                status=Status.objects.get(name="Active"),
+            # 3. Add interface
+            interface = Interface.objects.create(
+                device=device,
+                name="eth0",
                 type="1000base-t",
+                status=status_active,
             )
-            iface.validated_save()
-            self.log_success(f"Interface created: {iface}")
 
-            # Prefix
-            pref = Prefix(prefix=data["ip_prefix"], status=Status.objects.get(name="Active"))
-            pref.validated_save()
-            self.log_success(f"Prefix created: {pref}")
-
-            # IP Address
-            ip = IPAddress(
-                address=data["ip_address"],
-                status=Status.objects.get(name="Active"),
-                assigned_object=iface,
+            # 4. Add IP Address and bind it to interface
+            ip = IPAddress.objects.create(
+                address=ip_str,
+                assigned_object=interface,
+                status=status_active,
             )
-            ip.validated_save()
-            self.log_success(f"IP Address created: {ip}")
 
-            return f"All records for {data['device_name']} created successfully."
-        except ValidationError as e:
-            self.log_failure(f"Validation error: {e}")
-            return f"Validation failed: {e}"
-        except Exception as e:
-            self.log_failure(f"Unexpected error: {e}")
-            return f"Error: {e}"
+            # 5. Add A Record
+            ARecord.objects.create(
+                name=device_name,
+                zone=zone,
+                address=ip
+            )
 
-register_jobs(GenerateRecords)
+            self.log_success(f"Created {device_name} | IP: {ip_str}")
+
+        self.log_success(f"✅ Done! {data['total_devices']} devices created in zone '{zone.name}'.")
+
+job = GenerateDevicesAndRecords
