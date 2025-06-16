@@ -1,102 +1,81 @@
-from nautobot.extras.jobs import Job, StringVar, BooleanVar, register_job
-from nautobot.dcim.models import Location, Device, Interface
-from nautobot.ipam.models import IPAddress, Prefix
+from nautobot.apps.jobs import (
+    Job,
+    StringVar,
+    BooleanVar,
+    IPNetworkVar,
+    IPAddressWithMaskVar,
+    ObjectVar,
+    register_jobs,
+)
+from nautobot.dcim.models import Location, Device, Interface, DeviceType, DeviceRole
+from nautobot.ipam.models import Prefix, IPAddress
 from nautobot.extras.models import Status
-from nautobot.core.utils.lookup import get_route_for_model
 from django.core.exceptions import ValidationError
-import ipaddress
 
 class GenerateRecords(Job):
-    """
-    Job to generate various Nautobot records including locations, devices, interfaces, DNS records, IP Prefixes, and IP addresses.
-    """
+    """Generate Location, Device, Interface, Prefix & IP Address."""
+
     class Meta:
         name = "Generate Records"
         description = "Generate various Nautobot records"
         has_sensitive_variables = False
 
-    # Job variables
-    location_name = StringVar(
-        description="Name of the location to create",
-        required=True,
-    )
-    device_name = StringVar(
-        description="Name of the device to create",
-        required=True,
-    )
-    interface_name = StringVar(
-        description="Name of the interface to create",
-        required=True,
-    )
-    ip_prefix = StringVar(
-        description="IP Prefix to create (e.g., 192.168.1.0/24)",
-        required=True,
-    )
-    ip_address = StringVar(
-        description="IP Address to create (e.g., 192.168.1.1/24)",
-        required=True,
-    )
+    location_name = StringVar(required=True, description="Name of the Location")
+    device_name   = StringVar(required=True, description="Name of the Device")
+    device_type   = ObjectVar(model=DeviceType,    required=True, description="Device Type")
+    device_role   = ObjectVar(model=DeviceRole,    required=True, description="Device Role")
+    interface_name = StringVar(required=True, description="Name of the Interface")
+    ip_prefix     = IPNetworkVar(required=True, description="IP prefix (e.g. 192.168.1.0/24)")
+    ip_address    = IPAddressWithMaskVar(required=True, description="IP addr (e.g. 192.168.1.1/24)")
 
     def run(self, data, commit):
-        """
-        Main job execution method.
-        """
         try:
-            # Create Location
-            self.log_info("Creating location...")
-            location = Location(
-                name=data["location_name"],
-                status=Status.objects.get(name="Active"),
-            )
-            location.validated_save()
-            self.log_success(f"Created location: {location.name}")
+            # Location
+            loc = Location(name=data["location_name"], status=Status.objects.get(name="Active"))
+            loc.validated_save()
+            self.log_success(f"Location created: {loc}")
 
-            # Create Device
-            self.log_info("Creating device...")
-            device = Device(
+            # Device
+            dev = Device(
                 name=data["device_name"],
-                location=location,
+                device_type=data["device_type"],
+                device_role=data["device_role"],
+                location=loc,
                 status=Status.objects.get(name="Active"),
             )
-            device.validated_save()
-            self.log_success(f"Created device: {device.name}")
+            dev.validated_save()
+            self.log_success(f"Device created: {dev}")
 
-            # Create Interface
-            self.log_info("Creating interface...")
-            interface = Interface(
+            # Interface
+            iface = Interface(
                 name=data["interface_name"],
-                device=device,
+                device=dev,
                 status=Status.objects.get(name="Active"),
                 type="1000base-t",
             )
-            interface.validated_save()
-            self.log_success(f"Created interface: {interface.name}")
+            iface.validated_save()
+            self.log_success(f"Interface created: {iface}")
 
-            # Create IP Prefix
-            self.log_info("Creating IP prefix...")
-            prefix = Prefix(
-                prefix=data["ip_prefix"],
-                status=Status.objects.get(name="Active"),
-            )
-            prefix.validated_save()
-            self.log_success(f"Created prefix: {prefix.prefix}")
+            # Prefix
+            pref = Prefix(prefix=data["ip_prefix"], status=Status.objects.get(name="Active"))
+            pref.validated_save()
+            self.log_success(f"Prefix created: {pref}")
 
-            # Create IP Address
-            self.log_info("Creating IP address...")
-            ip_address = IPAddress(
+            # IP Address
+            ip = IPAddress(
                 address=data["ip_address"],
                 status=Status.objects.get(name="Active"),
-                assigned_object=interface,
+                assigned_object=iface,
             )
-            ip_address.validated_save()
-            self.log_success(f"Created IP address: {ip_address.address}")
+            ip.validated_save()
+            self.log_success(f"IP Address created: {ip}")
 
-            return f"Successfully created all records for {data['device_name']}"
-
+            return f"All records for {data['device_name']} created successfully."
         except ValidationError as e:
-            self.log_failure(f"Validation error: {str(e)}")
-            return f"Failed to create records: {str(e)}"
+            self.log_failure(f"Validation error: {e}")
+            return f"Validation failed: {e}"
         except Exception as e:
-            self.log_failure(f"Error: {str(e)}")
-            return f"Failed to create records: {str(e)}"
- register_job(GenerateRecords)
+            self.log_failure(f"Unexpected error: {e}")
+            return f"Error: {e}"
+
+register_jobs(GenerateRecords)
