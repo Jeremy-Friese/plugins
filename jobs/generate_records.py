@@ -1,4 +1,4 @@
-from nautobot.extras.jobs import Job, StringVar, BooleanVar
+from nautobot.extras.jobs import Job, StringVar, BooleanVar, register_job
 from nautobot.dcim.models import Location, Device, Interface
 from nautobot.ipam.models import IPAddress, Prefix
 from nautobot.extras.models import Status
@@ -99,3 +99,4 @@ class GenerateRecords(Job):
         except Exception as e:
             self.log_failure(f"Error: {str(e)}")
             return f"Failed to create records: {str(e)}"
+ register_job(GenerateRecords)
