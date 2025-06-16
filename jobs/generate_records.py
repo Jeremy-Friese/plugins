@@ -1,6 +1,7 @@
 import logging
 
-from nautobot.core.jobs import Job, StringVar, IntegerVar, BooleanVar
+# Changed import path for Job, StringVar, IntegerVar, BooleanVar
+from nautobot.apps.jobs import Job, StringVar, IntegerVar, BooleanVar
 from nautobot.dcim.models import Device, DeviceType, Manufacturer, Interface, Platform, Location
 from nautobot.ipam.models import IPAddress
 from nautobot.extras.models import Status
